@@ -16,7 +16,7 @@ method but leave other parts of your federated learning algorithm intact
 
 ## Citation
 This repository also implements parallelized client training in PyTorch. Please cite us if you find it useful.  
-Please email chen.9301[at]osu.edu for questions.
+Please email chen.9301[at]osu.edu for questions. Thank you.
 ```
 @inproceedings{chen2020fedbe,
   title={FedBE: Making Bayesian Model Ensemble Applicable to Federated Learning},
