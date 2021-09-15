@@ -12,6 +12,8 @@ FedBE is compatible with recent efforts in regularizing users’ model training,
 making it an easily applicable module: you only need to replace the aggregation
 method but leave other parts of your federated learning algorithm intact
 
+![](fedbe.png)
+
 ## Citation
 ```
 @inproceedings{chen2020fedbe,
