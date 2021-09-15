@@ -15,6 +15,7 @@ method but leave other parts of your federated learning algorithm intact
 ![](fedbe.png)
 
 ## Citation
+This repository also implements parallelized client training in PyTorch. Please cite us if you find it useful.
 ```
 @inproceedings{chen2020fedbe,
   title={FedBE: Making Bayesian Model Ensemble Applicable to Federated Learning},
@@ -23,6 +24,13 @@ method but leave other parts of your federated learning algorithm intact
   year={2021}
 }
 ```
+
+## References
+Some codes are based on:  
+* [shaoxiongji/federated-learning](https://github.com/shaoxiongji/federated-learning) 
+* [timgaripov/swa](https://github.com/timgaripov/swa) 
+* [wjmaddox/swa_gaussian](https://github.com/wjmaddox/swa_gaussian) 
+
 
 ## Questions
 Please email chen.9301[at]osu.edu if you have any questions.
