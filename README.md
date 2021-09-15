@@ -33,4 +33,4 @@ Some codes are based on:
 
 
 ## Questions
-Please email chen.9301[at]osu.edu if you have any questions.
+Please email chen.9301[at]osu.edu for questions.
