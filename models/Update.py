@@ -13,7 +13,6 @@ from scipy.stats import entropy
 import matplotlib.pyplot as plt
 import seaborn as sns
 import copy
-from models.lars import LARS
 from models.test import test_img
 from torchvision import datasets, transforms
 
