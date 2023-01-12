@@ -34,6 +34,7 @@ def mnist_noniid(dataset, num_users, num_data=60000):
     num_shards, num_imgs = 200, 250
     idx_shard = [i for i in range(num_shards)]
     dict_users = {i: np.array([], dtype='int64') for i in range(num_users)}
+    # dict_users = {0：array([], dtype=int64), 1: array([], dtype=int64) ....}
     idxs = np.arange(num_shards*num_imgs)
     labels = dataset.train_labels.numpy()[:num_shards*num_imgs]
 
@@ -46,6 +47,7 @@ def mnist_noniid(dataset, num_users, num_data=60000):
     for i in range(num_users):
         rand_set = set(np.random.choice(idx_shard, 2, replace=False))
         idx_shard = list(set(idx_shard) - rand_set)
+        # Remove rand_set from idxshard
         for rand in rand_set:
             add_idx = np.array(list(set(idxs[rand*num_imgs:(rand+1)*num_imgs]) ))
             dict_users[i] = np.concatenate((dict_users[i], add_idx), axis=0)
@@ -60,6 +62,9 @@ def mnist_noniid(dataset, num_users, num_data=60000):
     
     server_idx = list(range(num_shards*num_imgs, 60000))
     return dict_users, server_idx, cnts_dict
+    # dict_users: Set of size num_users each containing set of data for each user
+    # server_idx: a list of indexes beyween numb_shard * num_img and 60000
+    # cnt_dict: number of each labaels in each client
 
 def cifar_iid(dataset, num_users, num_data=50000):
     """
@@ -87,17 +92,18 @@ def cifar_noniid(dataset, num_users, num_data=50000, method="step"):
     :param num_users:
     :return:
     """
-
+    # dataset: datasets.CIFAR10('../data/cifar', train=True, download=True, transform=transform_train)
+    # labels is a set of integers marking the label of the data in the dataset
     labels = np.array(dataset.targets)
     _lst_sample = 10 
     
     if method=="step":
       
       num_shards = num_users*2
-      num_imgs = 50000// num_shards
-      idx_shard = [i for i in range(num_shards)]
+      num_imgs = 50000// num_shards # // is divide floor
+      idx_shard = [i for i in range(num_shards)] 
       
-      idxs = np.arange(num_shards*num_imgs)
+      idxs = np.arange(num_shards*num_imgs) # 50000 - 50000 mod (num_users*2)
       # sort labels
       idxs_labels = np.vstack((idxs, labels))
       idxs_labels = idxs_labels[:,idxs_labels[1,:].argsort()]
@@ -144,6 +150,7 @@ def cifar_noniid(dataset, num_users, num_data=50000, method="step"):
       
       N = y_train.shape[0]
       net_dataidx_map = {}
+      # {} defines a dictionary. {0:data,1:data...}
       dict_users = {i: np.array([], dtype='int64') for i in range(num_users)}
 
       while min_size < 10:
@@ -171,8 +178,11 @@ def cifar_noniid(dataset, num_users, num_data=50000, method="step"):
     with open("data_%d_u%d_%s.txt"%(num_data, num_users, method), 'w') as f:
       for i in range(num_users):
         labels_i = labels[dict_users[i]]
+        # 
         cnts = np.array([np.count_nonzero(labels_i == j ) for j in range(10)] )
         cnts_dict[i] = cnts
         f.write("User %s: %s sum: %d\n"%(i, " ".join([str(cnt) for cnt in cnts]), sum(cnts) ))  
-   
+    # dict_users: Set of size num_users each containing the indexes set of data for each user
+    # server_idx: a list of indexes beyween numb_shard * num_img and 60000
+    # cnt_dict: number of each labaels in each dict
     return dict_users, server_idx, cnts_dict

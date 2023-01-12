@@ -18,7 +18,7 @@ def args_parser():
     parser.add_argument('--frac', type=float, default=1.0, help="the fraction of clients")
 
     # Local train
-    parser.add_argument('--local_ep', type=int, default=10, help="the number of local epochs")
+    parser.add_argument('--local_ep', type=int, default=20, help="the number of local epochs")
     parser.add_argument('--local_bs', type=int, default=40, help="local batch size")
 
     parser.add_argument('--momentum', type=float, default=0.9, help="SGD momentum (default: 0.9)")
@@ -75,6 +75,10 @@ def args_parser():
     parser.add_argument('--update', type=str, default='dist', help='Aggregation update strategy, [FedAvg, dist]')
     parser.add_argument('--server_ep', type=int, default=20, help="the number of center epochs")
     parser.add_argument('--warmup_ep', type=int, default=-1, help="the number of warmup rounds")
+
+    parser.add_argument('--logit_method', type=str, default='mean', help="???")
+    parser.add_argument('--is_logit', type=bool, default=False, help="???")
+    parser.add_argument('--soft_vote', type=bool, default=False, help="???")
     
     # model arguments
     parser.add_argument('--model', type=str, default='cnn', help='model name')

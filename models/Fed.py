@@ -18,6 +18,10 @@ def create_local_init(glob, local, bias_ratio):
           
       
 def FedAvg(w, gpu, global_w=None, size_arr=None):
+    # w: client_w(eight)
+    # gpu: arg.num_gpu-1
+    # global_w: 
+    # size_arr: size_arr
     w_avg = {}
     for k in w[0].keys():
       w_avg[k] = torch.zeros(w[0][k].size())
@@ -41,5 +45,6 @@ def FedAvg(w, gpu, global_w=None, size_arr=None):
           for i in range(0, len(w)):
             w_avg[k] += size_arr[i]*w[i][k] 
           w_avg[k] = torch.div(w_avg[k], len(w))
-          
+
+    # w_avg: weight average      
     return w_avg

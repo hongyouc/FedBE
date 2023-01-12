@@ -22,6 +22,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 from utils.sampling import *
 from utils.options import args_parser
 from utils.tools import *
+from utils.main_extensions import *
 
 from models.Update import SWAGLocalUpdate, ServerUpdate
 from models.Nets import MLP, CNNMnist, CNNCifar
@@ -34,8 +35,9 @@ if __name__ == '__main__':
     # parse args
     args = args_parser()
     
+    # make all the directories
     args.log_dir = os.path.join(args.log_dir)   
-
+    
     if not os.path.exists(args.log_dir):
         os.makedirs(args.log_dir)  
 
@@ -51,6 +53,7 @@ if __name__ == '__main__':
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)         
 
+    # transform train parameters
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -88,12 +91,15 @@ if __name__ == '__main__':
         exit('Error: unrecognized dataset')
         
     train_ids = set()
+    # dict_users.items() is the content of the dictionary
     for u,v in dict_users.items():
         train_ids.update(v)
+    # train_ids is the liats of all the ids in dict_users for all the users in a 1d array
     train_ids = list(train_ids)     
 
     img_size = dataset_train[0][0].shape
     # build model
+    # models stored in models.Nets
     if args.model == 'cnn' and 'cifar' in args.dataset:
         net_glob = CNNCifar(args=args)
     elif args.model == 'cnn' and args.dataset == 'mnist':
@@ -120,6 +126,7 @@ if __name__ == '__main__':
     entropy_list = []
     cv_loss, cv_acc = [], []
     
+
     acc_local_list = []
     acc_local_test_list = []
     acc_local_val_list = []
@@ -131,17 +138,34 @@ if __name__ == '__main__':
 
     net_glob.apply(weights_init)    
 
-    def cliet_train(q, device_id, net_glob, iters, idx, val_id=server_id, generator=None):
+    # Arguments:
+    # q: mp.Manager.Queue
+    # device_id: the gpu thread being used to train the client
+    # net_glob: deep copy of net_glob
+    # iters: Current round number
+    # idx: idx of the client participating in the current round (range(m))
+    # val_id: server_id
+    # generator: None
+    #
+    # return: 
+    # A trained teacher model and its index (also put on manger queue)
+    def client_train(q, device_id, net_glob, iters, idx, val_id=server_id, generator=None):
         device=torch.device('cuda:{}'.format(device_id) if torch.cuda.is_available() and args.gpu != -1 else 'cpu')
+        print("device used:",device)
+        # LearningRate schedule (def in "tools")
         lr = lr_schedule(args.lr, iters, args.rounds)  
 
+        # local_sch : either step or adaptive. 
         if args.local_sch == "adaptive":
+            # local_ep : the number of local epochs
+            # adaptive scheduler (def in "tools")
             running_ep = adaptive_schedule(args.local_ep, args.epochs, iters, args.adap_ep)
         if running_ep != args.local_ep:
             print("Using adaptive scheduling, local ep = %d."%args.adap_ep)
         else:
             running_ep = args.local_ep
 
+        # In models
         local = SWAGLocalUpdate(args=args, 
                                 device=device, 
                                 dataset=dataset_train, 
@@ -150,13 +174,29 @@ if __name__ == '__main__':
                                 test=(dataset_test, range(len(dataset_test))), 
                                 num_per_cls=cnts_dict[idx]   )
 
+        # train a model using SWAGLocalUpdate, this model is called teacher
         teacher = local.train(net=net_glob.to(device), running_ep=running_ep, lr=lr)
         q.put([teacher, idx])
         return [teacher, idx]
 
+    # Arguments:
+    # q : mp.Manager.Queue()
+    # device_id : a constant. pretty sure this one doesn't do anything.
+    # net_glob : global deep network
+    # teachers: set of sampled teachers (and maybe also clients)
+    # global_ep: current round number
+    # w_org : None
+    # base_teachers = None
+    #
+    # !!!!!!!!!Output:
+    # w_swa : weight after stocastic weight averaging
+    # w_glob : 
+    # train_acc, val_acc, test_acc : 
+    # loss, entropy : 
     def server_train(q, device_id, net_glob, teachers, global_ep, w_org=None, base_teachers=None):
+        device=torch.device('cuda:{}'.format(device_id) if torch.cuda.is_available() and args.num_gpu != -1 else 'cpu')
         student = ServerUpdate(args=args, 
-                            device=device_id, 
+                            device=device, 
                             dataset=dataset_eval, 
                             server_dataset=dataset_eval, 
                             server_idxs=server_id, 
@@ -170,7 +210,17 @@ if __name__ == '__main__':
         q.put([w_swa, w_glob, train_acc, val_acc, test_acc, entropy])
         return [w_swa, w_glob, train_acc, val_acc, test_acc, entropy]
       
+    # Arguments:
+    # q : mp.Manager.Queue()
+    # net_glob : blobal deep network
+    # dataset : dataset being tested
+    # ids : a list of indexes of the data from the dataset being tested
+    #
+    # Output:
+    # [acc, loss] : accuracy and loss of the model (also put on Queue)
     def test_thread(q, net_glob, dataset, ids):
+        # acc: accuracy
+        # loss: test loss
         acc, loss = test_img(net_glob, dataset, args, ids, cls_num=args.num_classes)
         q.put([acc, loss])
         return [acc, loss]
@@ -208,6 +258,7 @@ if __name__ == '__main__':
 
         return [acc_train, loss_train], [acc_test,  loss_test], [acc_val,  loss_val]
     
+
     def put_log(logger, net_glob, tag, iters=-1):
         [acc_train, loss_train], [acc_test,  loss_test], [acc_val,  loss_val] = eval(net_glob, tag=tag, server_id=server_id)
 
@@ -244,7 +295,8 @@ if __name__ == '__main__':
                 logger.swa_train_acc_list.append(acc_train)
                 logger.swa_val_acc_list.append(acc_val) 
                 logger.swa_test_acc_list.append(acc_test)   
-        
+    
+
     def put_oracle_log(logger, ens_train_acc, ens_val_acc, ens_test_acc, iters=-1):    
         if iters>=0 and iters%args.log_ep!= 0:
             return
@@ -264,17 +316,22 @@ if __name__ == '__main__':
             f.write("%d %f\n"%(iters, ens_test_acc))
         with open(os.path.join(args.acc_dir, tag+"_val_acc.txt"), "a") as f:
             f.write("%d %f\n"%(iters, ens_val_acc))     
-      
+
+
     dist_logger = logger("DIST")
     fedavg_logger = logger("FedAvg")  
     work_tag = args.update    
+    
 
     teachers = [[] for i in range(args.num_users)]  
     generator = None
     best_acc = 0.0
     
+    # cnts_dict : count of each label in each clients
     size_arr = [np.sum(cnts_dict[i]) for i in range(args.num_users)]  
+
     for iters in range(args.rounds):
+        print("Server Epouch:",iters)
         w_glob_org = copy.deepcopy(net_glob.state_dict())
         
         net_glob.train()
@@ -284,7 +341,9 @@ if __name__ == '__main__':
         loss_locals_test = []
         acc_locals_val = []
         
+        # m : number of clients participating in this round of training
         m = max(int(args.frac * args.num_users), 1)
+        # randomly chose m users
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         clients = [[] for i in range(args.num_users)]
         
@@ -295,33 +354,46 @@ if __name__ == '__main__':
             q = mp.Manager().Queue()
             
             for idx in idxs_users[i:i+num_threads]:
-                p = mp.Process(target=cliet_train, args=(q, idx%(args.num_gpu), copy.deepcopy(net_glob), iters, idx, server_id, generator))
+                # create process p and append to processes
+                p = mp.Process(target=client_train, args=(q, idx%(args.num_gpu), copy.deepcopy(net_glob), iters, idx, server_id, generator))
                 p.start()
                 processes.append(p)
 
             for p in processes:
                 p.join()
 
-            while not q.empty():     
+            while not q.empty(): 
+                # fake_out : A trained teacher model and its index (client number)
                 fake_out = q.get()
                 idx = int(fake_out[-1])
                 clients[idx].append(fake_out[0])
 
+        # Exclude the clients without a model (and also take first model of clients with multiple models)
         clients = [c[0] for c in clients if len(c)>0]
+        # clinet_w : a list of the current weights and biases of the variouse layes of the network
+        # Each state dict is a dictionary with each entry being "layer_name : layer_tensor_values"
         client_w = [c.state_dict() for c in clients]
         
+
         if args.store_model and (iters%args.log_ep==0 or iters==args.rounds-1):
+            # iter : current round number
+            # model_dir : os.path.join(args.log_dir, "models")
+            # w_glob_org : (weight of) global model before training
+            # client_w : weight of global model after training
             store_model(iters, model_dir, w_glob_org, client_w)
           
         if args.fedM and iters > 1:
+            # FedAvg with momentum
             w_glob_avg, momentum = FedAvgM(client_w, args.num_gpu-1, (w_glob_org, momentum), args.mom, size_arr=size_arr)   
         else:
+            # Calculate federated average weight and the momentum
             w_glob_avg = FedAvg(client_w, args.num_gpu-1, size_arr=size_arr)
             momentum = {k:w_glob_org[k]-w_glob_avg[k] for k in w_glob_avg.keys()}
         
+        # Update the global network
         net_glob.load_state_dict(w_glob_avg)     
         
-        if iters%args.log_ep== 0:
+        if iters%args.log_ep== 0 or iters == args.rounds-1:
             put_log(fedavg_logger, net_glob, tag='FedAvg', iters=iters)
         
         # Generate Teachers
@@ -335,7 +407,11 @@ if __name__ == '__main__':
         if args.teacher_type=="SWAG" and iters > args.warmup_ep:
             for i in range(args.num_sample_teacher):
                 base_teachers = client_w
+                # args : input arguments
+                # w_glob_org : orginal global weight. This is a dictionary
+                # w_glob_avg : global average weight. Obtained by using fedavg with momentum
                 swag_model = SWAG_server(args, w_glob_org, avg_model=w_glob_avg, concentrate_num=1, size_arr=size_arr)
+                # Sample models using gaussian methods
                 w_swag = swag_model.construct_models(base_teachers, mode=args.sample_teacher) 
                 net_glob.load_state_dict(w_swag)
                 teachers_list.append(copy.deepcopy(net_glob))  
@@ -363,7 +439,7 @@ if __name__ == '__main__':
         if best_acc < ens_test_acc:
             best_acc = ens_test_acc
         
-        if iters%args.log_ep== 0:
+        if iters%args.log_ep== 0 or iters == args.rounds-1:
             net_glob.load_state_dict(w_glob_mean)
             put_log(dist_logger, net_glob, tag='DIST-SWA', iters=iters) 
                   
@@ -384,7 +460,10 @@ if __name__ == '__main__':
         
         if args.store_model and iters == args.rounds-1:
             store_model(iters, model_dir, w_glob_org, client_w)
+            print("best_acc",best_acc)
 
         del clients
-        
-    torch.save(net_glob.state_dict(), os.path.join(args.log_dir, "model"))
+    net_glob.load_state_dict(w_glob_mean)
+    torch.save(net_glob.state_dict(), os.path.join(args.log_dir, "FedBE_wSWA_model"))
+    net_glob.load_state_dict(w_glob)
+    torch.save(net_glob.state_dict(), os.path.join(args.log_dir, "FedBE_woSWA_model"))

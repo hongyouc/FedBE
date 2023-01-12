@@ -29,7 +29,6 @@ class SWAGLocalUpdate(object):
         self.args = args
         self.device = device
         self.num_per_cls = num_per_cls
-        
         self.loss_func = nn.CrossEntropyLoss().to(self.device)
         
         self.selected_clients = []
@@ -39,6 +38,7 @@ class SWAGLocalUpdate(object):
         
         self.server_ids = server_ids
 
+    # It involves adding a term to the objective function that is proportional to the sum of the squares of the weights.
     def apply_weight_decay(self, *modules, weight_decay_factor=0., wo_bn=True):
         '''
         https://discuss.pytorch.org/t/weight-decay-in-the-optimizers-is-a-bad-idea-especially-with-batchnorm/16994/5
@@ -57,7 +57,8 @@ class SWAGLocalUpdate(object):
                     if wo_bn and isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
                         continue
                     m.weight.grad += m.weight * weight_decay_factor
-                    
+
+    # additional loss function to push the loss toward the desired direction.         
     def reg_loss(self, net, grad_org):         
       if self.args.reg_type == "FedProx":
         reg_loss = 0.0
@@ -66,7 +67,8 @@ class SWAGLocalUpdate(object):
             reg_loss += torch.norm(param-grad_org[name].to(self.device), 2)    
         reg_loss = reg_loss*0.5*self.args.mu
       return reg_loss
-        
+    
+    
     def train(self, net, running_ep, lr): 
         net.cpu()
         grad_org = copy.deepcopy(net.state_dict())
@@ -143,13 +145,13 @@ class ServerUpdate(object):
 
     def transform_train(self, images):
         images = random_crop(images, 4)
-        images = torch.Tensor(images).cuda()
+        images = torch.Tensor(images).to(self.device)
         return images 
 
     def get_ensemble_logits(self, teachers, inputs, method='mean', global_ep=1000):
         logits = np.zeros((len(teachers), len(inputs), self.args.num_classes))
         for i, t_net in enumerate(teachers):
-          logit = get_input_logits(inputs, t_net.cuda(), is_logit = self.args.is_logit) #Disable res
+          logit = get_input_logits(inputs, t_net.to(self.device), is_logit = self.args.is_logit) #Disable res
           logits[i] = logit
           
         logits = np.transpose(logits, (1, 0, 2)) # batchsize, teachers, 10
@@ -171,9 +173,8 @@ class ServerUpdate(object):
 
         else:
           for batch_idx, (images, labels) in enumerate(dataset):
-              images = images.cuda()
+              images = images.to(self.device)
               logits, _ = self.get_ensemble_logits(teachers, images, method=self.args.logit_method, global_ep=1000)
-              
               if self.args.logit_method != "vote":
                 logits=np.argmax(logits, axis=-1)
 
@@ -189,17 +190,17 @@ class ServerUpdate(object):
             logits = np.argmax(logits, axis=-1)
           acc_cnt=np.sum(logits==labels)
           cnt=len(labels)
-          logits = torch.Tensor(logits).long().cuda(non_blocking=True)  
+          logits = torch.Tensor(logits).long().to(self.device,non_blocking=True)  
             
         else:  
           acc_cnt=np.sum(np.argmax(logits, axis=-1)==labels)
           cnt=len(labels)
-          logits = torch.Tensor(logits).cuda(non_blocking=True)  
+          logits = torch.Tensor(logits).to(self.device,non_blocking=True)  
 
 
         # For loss function
         if self.args.use_oracle:
-          loss = nn.CrossEntropyLoss()(log_probs, torch.Tensor(labels).long().cuda())
+          loss = nn.CrossEntropyLoss()(log_probs, torch.Tensor(labels).long().to(self.device))
         else:      
           if "KL" in self.loss_type:
             log_probs = F.softmax(log_probs, dim=-1)
@@ -210,7 +211,7 @@ class ServerUpdate(object):
               P = logits 
               Q = log_probs
             
-            one_vec = (P * (P.log() - torch.Tensor([0.1]).cuda(non_blocking=True).log()))
+            one_vec = (P * (P.log() - torch.Tensor([0.1]).to(self.device,non_blocking=True).log()))
             loss = (P * (P.log() - Q.log())).mean()
           else:
             loss = self.loss_func(log_probs, logits)
@@ -218,8 +219,8 @@ class ServerUpdate(object):
         return loss, acc_cnt, cnt     
     
     def test_net(self, tmp_net):
-        tmp_net = tmp_net.cuda()
-        (input, label) = (self.eval_images.cuda(), self.eval_labels.cuda())
+        tmp_net = tmp_net.to(self.device)
+        (input, label) = (self.eval_images.to(self.device), self.eval_labels.to(self.device))
         log_probs = tmp_net(input)
         loss = nn.CrossEntropyLoss()(log_probs, label)
         return not torch.isnan(loss)
@@ -245,7 +246,8 @@ class ServerUpdate(object):
         all_labels = np.zeros((num))
         cnt = 0
         for batch_idx, (images, labels) in enumerate(self.ldr_train):
-            logits, batch_entropy = self.get_ensemble_logits(teachers, images.cuda(), method=self.args.logit_method, global_ep=global_ep)
+            imgs = images.to(self.device)
+            logits, batch_entropy = self.get_ensemble_logits(teachers, imgs, method=self.args.logit_method, global_ep=global_ep)
             entropy.append(batch_entropy)
             
             all_images[cnt:cnt+len(images)] = images.numpy()
@@ -266,6 +268,8 @@ class ServerUpdate(object):
           test_acc = self.eval_ensemble(teachers, self.test_dataset)
           train_acc = self.eval_ensemble(teachers, self.ldr_local_train)
           
+          
+
           plt.plot(range(len(teachers)), acc_per_teacher, marker="o", label="Acc")
           plt.plot(range(len(teachers)), conf_per_teacher, marker="o", label="Confidence")
           plt.plot(range(len(teachers)), conf_per_teacher - acc_per_teacher, marker="o", label="Confidence - Acc")
@@ -294,7 +298,7 @@ class ServerUpdate(object):
         (all_images, all_logits, all_labels) = ldr_train 
         #======================Server Train========================
         print("Start server training...")
-        net.cuda()        
+        net.to(self.device)       
         net.train()
 
         epoch_loss = []
@@ -315,7 +319,7 @@ class ServerUpdate(object):
                 if self.aug:
                   images = self.transform_train(images)
                 else:
-                  images = torch.Tensor(images).cuda()   
+                  images = torch.Tensor(images).to(self.device)  
                 logits = all_logits[ids]
                 labels = all_labels[ids]
                 
@@ -349,7 +353,9 @@ class ServerUpdate(object):
         net = net.cpu()   
         w_glob_avg = copy.deepcopy(net.state_dict())
         w_glob = net_glob.cpu().state_dict()
-        
+        print("train_acc:",train_acc)
+        print("val_acc:",val_acc)
+        print("test_acc:",test_acc)
         print("Ensemble Acc Train %.2f Val %.2f Test %.2f mean entropy %.5f"%(train_acc, val_acc, test_acc, 0.0))    
         return w_glob_avg, w_glob, train_acc, val_acc, test_acc, sum(epoch_loss) / len(epoch_loss), 0.0
 

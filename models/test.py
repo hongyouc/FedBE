@@ -34,10 +34,13 @@ def test_img(net_g, datatest, args, idxs, reweight=None, cls_num=10):
     
     data_loader = DataLoader(DatasetSplit(datatest, idxs), batch_size=1024, shuffle=False)
     l = len(data_loader)
-    net_g = net_g.cuda()
+    if torch.cuda.is_available() and args.gpu != -1:
+        net_g = net_g.cuda()
+    else:
+        net_g = net_g.cpu()
     with torch.no_grad():
       for idx, (data, target) in enumerate(data_loader):
-          if args.gpu != -1:
+          if torch.cuda.is_available() and args.gpu != -1:
               data, target = data.cuda(), target.cuda()
           log_probs = net_g(data)
           # sum up batch loss
